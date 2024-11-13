@@ -6,7 +6,7 @@ import "./Escrow.sol";
 
 /**
  * @title EscrowFactory
-  * @author Roqib Yusuf
+ * @author Roqib Yusuf
  * @notice Factory contract for deploying new escrow instances
  * @dev Manages creation and configuration of escrow contracts
  */
@@ -29,11 +29,7 @@ contract EscrowFactory is Ownable {
     /// @notice Fee percentage in basepoints.  1 basepoint is 1/100 of 1%, also 0.01% or 1/10000.
     uint256 public basepoints;
 
-    event EscrowCreated(
-        address indexed escrow,
-        address indexed buyer,
-        address indexed seller
-    );
+    event EscrowCreated(address indexed escrow, address indexed buyer, address indexed seller);
     event FeeUpdated(uint256 flatFee, uint256 basepoints);
     event TimeOutUpdated(uint256 releaseTimeout);
 
@@ -45,13 +41,9 @@ contract EscrowFactory is Ownable {
      * @param _flatFee Fixed fee amount
      * @param _bps Fee percentage in basepoints
      */
-    constructor(
-        address _arbitrator,
-        address _erc20Token,
-        address _feeRecipient,
-        uint256 _flatFee,
-        uint256 _bps
-    ) Ownable(msg.sender) {
+    constructor(address _arbitrator, address _erc20Token, address _feeRecipient, uint256 _flatFee, uint256 _bps)
+        Ownable(msg.sender)
+    {
         if (_arbitrator == address(0)) revert InvalidArbitratorAddress();
         if (_erc20Token == address(0)) revert InvalidERC20TokenAddress();
         if (_feeRecipient == address(0)) revert InvalidFeeRecipientAddress();
@@ -70,21 +62,9 @@ contract EscrowFactory is Ownable {
      * @param milestoneCount Number of milestones
      * @return Address of the newly created escrow contract
      */
-    function createEscrow(
-        address buyer,
-        address seller,
-        uint256 milestoneCount
-    ) external returns (address) {
+    function createEscrow(address buyer, address seller, uint256 milestoneCount) external returns (address) {
         Escrow escrow = new Escrow(
-            buyer,
-            seller,
-            arbitrator,
-            erc20Token,
-            feeRecipient,
-            flatFee,
-            basepoints,
-            milestoneCount,
-            releaseTimeout
+            buyer, seller, arbitrator, erc20Token, feeRecipient, flatFee, basepoints, milestoneCount, releaseTimeout
         );
 
         emit EscrowCreated(address(escrow), buyer, seller);

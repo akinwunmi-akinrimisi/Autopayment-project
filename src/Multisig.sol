@@ -21,11 +21,7 @@ error SignerNotFound();
 error EscrowContractFailed();
 
 interface IEscrow {
-    function settleMilestone(
-        uint256 milestoneId,
-        uint256 refundAmount,
-        uint256 releaseAmount
-    ) external;
+    function settleMilestone(uint256 milestoneId, uint256 refundAmount, uint256 releaseAmount) external;
 }
 
 /**
@@ -34,7 +30,6 @@ interface IEscrow {
  * @notice Multi-signature wallet for governance and escrow dispute resolution
  * @dev Implements a governance system with proposal creation, voting, and execution
  */
-
 contract Multisig is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -85,24 +80,16 @@ contract Multisig is ReentrancyGuard {
         mapping(address => bool) voted;
     }
     /// @notice Mapping of proposal IDs to proposal details
+
     mapping(uint256 => Proposal) public proposals;
 
     /// @notice Total number of proposals created
     uint256 public proposalCount;
 
-    event ProposalCreated(
-        uint256 proposalId,
-        ProposalType proposalType,
-        address target
-    );
+    event ProposalCreated(uint256 proposalId, ProposalType proposalType, address target);
     event VoteCasted(uint256 proposalId, address voter, bool support);
     event ProposalExecuted(uint256 proposalId);
-    event MilestoneSettled(
-        uint256 milestoneId,
-        uint256 refundAmount,
-        uint256 releaseAmount,
-        address indexed signer
-    );
+    event MilestoneSettled(uint256 milestoneId, uint256 refundAmount, uint256 releaseAmount, address indexed signer);
 
     modifier onlySigner() {
         if (!isSigner(msg.sender)) revert NotAuthorizedSigner();
@@ -177,10 +164,7 @@ contract Multisig is ReentrancyGuard {
      * @param proposalId The ID of the proposal being voted on
      * @param support True to vote in favor, false to vote against
      */
-    function vote(
-        uint256 proposalId,
-        bool support
-    ) external onlySigner nonReentrant {
+    function vote(uint256 proposalId, bool support) external onlySigner nonReentrant {
         Proposal storage proposal = proposals[proposalId];
         if (proposal.voted[msg.sender]) revert AlreadyVoted();
         if (proposal.executed) revert ProposalAlreadyExecuted();
@@ -200,9 +184,7 @@ contract Multisig is ReentrancyGuard {
      * @notice Executes a proposal if it meets the required quorum and vote count
      * @param proposalId The ID of the proposal to execute
      */
-    function executeProposal(
-        uint256 proposalId
-    ) external onlySigner nonReentrant {
+    function executeProposal(uint256 proposalId) external onlySigner nonReentrant {
         Proposal storage proposal = proposals[proposalId];
         if (proposal.executed) revert ProposalAlreadyExecuted();
         if (proposal.votesFor < quorum) revert InsufficientVotesToExecute();
@@ -216,9 +198,7 @@ contract Multisig is ReentrancyGuard {
             if (!isSigner(proposal.signer)) revert NotASigner();
             _removeSigner(proposal.signer);
         } else if (proposal.proposalType == ProposalType.UpdateQuorum) {
-            if (
-                proposal.newQuorum == 0 || proposal.newQuorum > signers.length
-            ) {
+            if (proposal.newQuorum == 0 || proposal.newQuorum > signers.length) {
                 revert InvalidQuorum();
             }
             quorum = proposal.newQuorum;
@@ -239,10 +219,7 @@ contract Multisig is ReentrancyGuard {
      * @param voter The address of the signer to check
      * @return voted True if the signer has voted, false otherwise
      */
-    function hasVoted(
-        uint256 proposalId,
-        address voter
-    ) external view returns (bool voted) {
+    function hasVoted(uint256 proposalId, address voter) external view returns (bool voted) {
         if (!isSigner(voter)) revert NotAuthorizedSigner();
         Proposal storage proposal = proposals[proposalId];
         voted = proposal.voted[voter];
@@ -261,22 +238,12 @@ contract Multisig is ReentrancyGuard {
         uint256 refundAmount,
         uint256 releaseAmount
     ) external onlySigner nonReentrant {
-        try
-            IEscrow(escrowContract).settleMilestone(
-                milestoneId,
-                refundAmount,
-                releaseAmount
-            )
-        {} catch {
+        try IEscrow(escrowContract).settleMilestone(milestoneId, refundAmount, releaseAmount) {}
+        catch {
             revert EscrowContractFailed();
         }
 
-        emit MilestoneSettled(
-            milestoneId,
-            refundAmount,
-            releaseAmount,
-            msg.sender
-        );
+        emit MilestoneSettled(milestoneId, refundAmount, releaseAmount, msg.sender);
     }
 
     /**

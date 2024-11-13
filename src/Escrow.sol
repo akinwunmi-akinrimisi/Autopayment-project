@@ -349,7 +349,7 @@ contract Escrow {
     /**
      * @dev Internal function to release milestone funds
      * Example of fee calculation
-     * If the flatFee is set to 50, and basepoints is 250 (which means a 2.5% fee -> Which means 2.5/100 -> Which also means 250 / (100 * 100)), 
+     * If the flatFee is set to 50, and basepoints is 250 (which means a 2.5% fee -> Which means 2.5/100 -> Which also means 250 / (100 * 100)),
      * and the amount passed to calculateFee is 1,000, the fee would be:
      * 50 + (1000 * 250) / 10,000
      * = 50 + 25
