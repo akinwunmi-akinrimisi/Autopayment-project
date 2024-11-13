@@ -1,5 +1,0 @@
-{
-    "wake.compiler.solc.remappings": [
-        "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"
-    ]
-}
