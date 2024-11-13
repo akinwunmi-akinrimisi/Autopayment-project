@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+//Custom Errors
 error NotAuthorizedSigner();
 error SignersRequired();
 error InvalidQuorum();
@@ -20,16 +21,39 @@ error SignerNotFound();
 error EscrowContractFailed();
 
 interface IEscrow {
-    function settleMilestone(uint256 milestoneId, uint256 refundAmount, uint256 releaseAmount) external;
+    function settleMilestone(
+        uint256 milestoneId,
+        uint256 refundAmount,
+        uint256 releaseAmount
+    ) external;
 }
+
+/**
+ * @title Multisig
+ * @author Roqib Yusuf
+ * @notice Multi-signature wallet for governance and escrow dispute resolution
+ * @dev Implements a governance system with proposal creation, voting, and execution
+ */
 
 contract Multisig is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    /// @notice Required number of votes for proposal execution
     uint256 public quorum;
+
+    /// @notice List of authorized signers
     address[] public signers;
+
+    /// @notice Token used for fee payments
     IERC20 public feeToken;
 
+    /**
+     * @notice Types of proposals that can be created
+     * @param AddSigner Add a new signer to the multisig
+     * @param RemoveSigner Remove an existing signer
+     * @param UpdateQuorum Change the required number of votes
+     * @param WithdrawFees Withdraw accumulated fees
+     */
     enum ProposalType {
         AddSigner,
         RemoveSigner,
@@ -37,6 +61,18 @@ contract Multisig is ReentrancyGuard {
         WithdrawFees
     }
 
+    /**
+     * @notice Structure containing proposal details
+     * @param proposalType Type of action being proposed
+     * @param target Address receiving withdrawn fees
+     * @param signer Address being added/removed as signer
+     * @param newQuorum New quorum value for quorum updates
+     * @param withdrawalAmount Amount of fees to withdraw
+     * @param votesFor Number of votes supporting the proposal
+     * @param votesAgainst Number of votes against the proposal
+     * @param executed Whether the proposal has been executed
+     * @param voted Mapping of signer addresses to their voting status
+     */
     struct Proposal {
         ProposalType proposalType;
         address target;
@@ -48,20 +84,37 @@ contract Multisig is ReentrancyGuard {
         bool executed;
         mapping(address => bool) voted;
     }
-
+    /// @notice Mapping of proposal IDs to proposal details
     mapping(uint256 => Proposal) public proposals;
+
+    /// @notice Total number of proposals created
     uint256 public proposalCount;
 
-    event ProposalCreated(uint256 proposalId, ProposalType proposalType, address target);
+    event ProposalCreated(
+        uint256 proposalId,
+        ProposalType proposalType,
+        address target
+    );
     event VoteCast(uint256 proposalId, address voter, bool support);
     event ProposalExecuted(uint256 proposalId);
-    event MilestoneSettled(uint256 milestoneId, uint256 refundAmount, uint256 releaseAmount, address indexed signer);
+    event MilestoneSettled(
+        uint256 milestoneId,
+        uint256 refundAmount,
+        uint256 releaseAmount,
+        address indexed signer
+    );
 
     modifier onlySigner() {
         if (!isSigner(msg.sender)) revert NotAuthorizedSigner();
         _;
     }
 
+    /**
+     * @notice Creates a new Multisig contract
+     * @param _signers Initial list of authorized signers
+     * @param _quorum Number of required votes
+     * @param _feeToken Address of the fee token
+     */
     constructor(address[] memory _signers, uint256 _quorum, IERC20 _feeToken) {
         if (_signers.length == 0) revert SignersRequired();
         if (_quorum == 0 || _quorum > _signers.length) revert InvalidQuorum();
@@ -74,6 +127,11 @@ contract Multisig is ReentrancyGuard {
         feeToken = _feeToken;
     }
 
+    /**
+     * @notice Checks if an address is an authorized signer
+     * @param account The address to check
+     * @return True if the address is a signer, false otherwise
+     */
     function isSigner(address account) public view returns (bool) {
         for (uint256 i = 0; i < signers.length; i++) {
             if (signers[i] == account) {
@@ -83,6 +141,15 @@ contract Multisig is ReentrancyGuard {
         return false;
     }
 
+    /**
+     * @notice Creates a new proposal for governance actions
+     * @param proposalType The type of proposal (e.g., AddSigner, RemoveSigner)
+     * @param target The address for fee withdrawal proposals
+     * @param signer The address to add or remove as a signer (if applicable)
+     * @param newQuorum The new quorum value (if applicable)
+     * @param withdrawalAmount The amount to withdraw (if applicable)
+     * @return The ID of the newly created proposal
+     */
     function createProposal(
         ProposalType proposalType,
         address target,
@@ -105,7 +172,15 @@ contract Multisig is ReentrancyGuard {
         return proposalCount++;
     }
 
-    function vote(uint256 proposalId, bool support) external onlySigner nonReentrant {
+    /**
+     * @notice Casts a vote on a specific proposal
+     * @param proposalId The ID of the proposal being voted on
+     * @param support True to vote in favor, false to vote against
+     */
+    function vote(
+        uint256 proposalId,
+        bool support
+    ) external onlySigner nonReentrant {
         Proposal storage proposal = proposals[proposalId];
         if (proposal.voted[msg.sender]) revert AlreadyVoted();
         if (proposal.executed) revert ProposalAlreadyExecuted();
@@ -121,7 +196,13 @@ contract Multisig is ReentrancyGuard {
         emit VoteCast(proposalId, msg.sender, support);
     }
 
-    function executeProposal(uint256 proposalId) external onlySigner nonReentrant {
+    /**
+     * @notice Executes a proposal if it meets the required quorum and vote count
+     * @param proposalId The ID of the proposal to execute
+     */
+    function executeProposal(
+        uint256 proposalId
+    ) external onlySigner nonReentrant {
         Proposal storage proposal = proposals[proposalId];
         if (proposal.executed) revert ProposalAlreadyExecuted();
         if (proposal.votesFor < quorum) revert InsufficientVotesToExecute();
@@ -135,7 +216,9 @@ contract Multisig is ReentrancyGuard {
             if (!isSigner(proposal.signer)) revert NotASigner();
             _removeSigner(proposal.signer);
         } else if (proposal.proposalType == ProposalType.UpdateQuorum) {
-            if (proposal.newQuorum == 0 || proposal.newQuorum > signers.length) {
+            if (
+                proposal.newQuorum == 0 || proposal.newQuorum > signers.length
+            ) {
                 revert InvalidQuorum();
             }
             quorum = proposal.newQuorum;
@@ -150,26 +233,57 @@ contract Multisig is ReentrancyGuard {
         emit ProposalExecuted(proposalId);
     }
 
-    function hasVoted(uint256 proposalId, address voter) external view returns (bool voted) {
+    /**
+     * @notice Checks if a signer has voted on a specific proposal
+     * @param proposalId The ID of the proposal
+     * @param voter The address of the signer to check
+     * @return voted True if the signer has voted, false otherwise
+     */
+    function hasVoted(
+        uint256 proposalId,
+        address voter
+    ) external view returns (bool voted) {
         if (!isSigner(voter)) revert NotAuthorizedSigner();
         Proposal storage proposal = proposals[proposalId];
         voted = proposal.voted[voter];
     }
 
+    /**
+     * @notice Settles an escrow milestone without requiring quorum
+     * @param escrowContract Address of the escrow contract
+     * @param milestoneId ID of the milestone to settle
+     * @param refundAmount Amount to refund to buyer
+     * @param releaseAmount Amount to release to seller
+     */
     function settleMilestoneWithoutQuorum(
         address escrowContract,
         uint256 milestoneId,
         uint256 refundAmount,
         uint256 releaseAmount
     ) external onlySigner nonReentrant {
-        try IEscrow(escrowContract).settleMilestone(milestoneId, refundAmount, releaseAmount) {}
-        catch {
+        try
+            IEscrow(escrowContract).settleMilestone(
+                milestoneId,
+                refundAmount,
+                releaseAmount
+            )
+        {} catch {
             revert EscrowContractFailed();
         }
 
-        emit MilestoneSettled(milestoneId, refundAmount, releaseAmount, msg.sender);
+        emit MilestoneSettled(
+            milestoneId,
+            refundAmount,
+            releaseAmount,
+            msg.sender
+        );
     }
 
+    /**
+     * @notice Removes a signer from the list of authorized signers
+     * @param signer The address of the signer to remove
+     * @dev This function is internal and only called within the contract
+     */
     function _removeSigner(address signer) internal {
         uint256 index;
         bool found = false;
@@ -186,6 +300,10 @@ contract Multisig is ReentrancyGuard {
         signers.pop();
     }
 
+    /**
+     * @notice Retrieves the list of all authorized signers
+     * @return An array of addresses of the current signers
+     */
     function getSigners() external view returns (address[] memory) {
         return signers;
     }
