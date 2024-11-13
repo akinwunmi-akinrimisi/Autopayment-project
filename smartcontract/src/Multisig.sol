@@ -95,7 +95,7 @@ contract Multisig is ReentrancyGuard {
         ProposalType proposalType,
         address target
     );
-    event VoteCast(uint256 proposalId, address voter, bool support);
+    event VoteCasted(uint256 proposalId, address voter, bool support);
     event ProposalExecuted(uint256 proposalId);
     event MilestoneSettled(
         uint256 milestoneId,
@@ -193,7 +193,7 @@ contract Multisig is ReentrancyGuard {
             proposal.votesAgainst++;
         }
 
-        emit VoteCast(proposalId, msg.sender, support);
+        emit VoteCasted(proposalId, msg.sender, support);
     }
 
     /**
