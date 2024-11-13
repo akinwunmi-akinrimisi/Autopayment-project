@@ -23,7 +23,7 @@ interface IEscrow {
     function settleMilestone(uint256 milestoneId, uint256 refundAmount, uint256 releaseAmount) external;
 }
 
-contract FlexibleMultisig is ReentrancyGuard {
+contract Multisig is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public quorum;
