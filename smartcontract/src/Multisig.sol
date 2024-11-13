@@ -163,7 +163,7 @@ contract Multisig is ReentrancyGuard {
         uint256 releaseAmount
     ) external onlySigner nonReentrant {
         try IEscrow(escrowContract).settleMilestone(milestoneId, refundAmount, releaseAmount) {}
-        catch (bytes memory) {
+        catch {
             revert EscrowContractFailed();
         }
 
