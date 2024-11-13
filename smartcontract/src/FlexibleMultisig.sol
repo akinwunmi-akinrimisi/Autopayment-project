@@ -150,6 +150,12 @@ contract FlexibleMultisig is ReentrancyGuard {
         emit ProposalExecuted(proposalId);
     }
 
+    function hasVoted(uint256 proposalId, address voter) external view returns (bool voted) {
+        if (!isSigner(voter)) revert NotAuthorizedSigner();
+        Proposal storage proposal = proposals[proposalId];
+        voted = proposal.voted[voter];
+    }
+
     function settleMilestoneWithoutQuorum(
         address escrowContract,
         uint256 milestoneId,
