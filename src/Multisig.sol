@@ -21,7 +21,10 @@ error SignerNotFound();
 error EscrowContractFailed();
 
 interface IEscrow {
-    function settleMilestone(uint256 milestoneId, uint256 refundAmount, uint256 releaseAmount) external;
+    function resolveDispute(
+        uint256 refundAmount,
+        uint256 releaseAmount
+    ) external;
 }
 
 /**
@@ -86,10 +89,18 @@ contract Multisig is ReentrancyGuard {
     /// @notice Total number of proposals created
     uint256 public proposalCount;
 
-    event ProposalCreated(uint256 proposalId, ProposalType proposalType, address target);
+    event ProposalCreated(
+        uint256 proposalId,
+        ProposalType proposalType,
+        address target
+    );
     event VoteCasted(uint256 proposalId, address voter, bool support);
     event ProposalExecuted(uint256 proposalId);
-    event MilestoneSettled(uint256 milestoneId, uint256 refundAmount, uint256 releaseAmount, address indexed signer);
+    event EscrowResolved(
+        uint256 refundAmount,
+        uint256 releaseAmount,
+        address indexed signer
+    );
 
     modifier onlySigner() {
         if (!isSigner(msg.sender)) revert NotAuthorizedSigner();
@@ -164,7 +175,10 @@ contract Multisig is ReentrancyGuard {
      * @param proposalId The ID of the proposal being voted on
      * @param support True to vote in favor, false to vote against
      */
-    function vote(uint256 proposalId, bool support) external onlySigner nonReentrant {
+    function vote(
+        uint256 proposalId,
+        bool support
+    ) external onlySigner nonReentrant {
         Proposal storage proposal = proposals[proposalId];
         if (proposal.voted[msg.sender]) revert AlreadyVoted();
         if (proposal.executed) revert ProposalAlreadyExecuted();
@@ -184,7 +198,9 @@ contract Multisig is ReentrancyGuard {
      * @notice Executes a proposal if it meets the required quorum and vote count
      * @param proposalId The ID of the proposal to execute
      */
-    function executeProposal(uint256 proposalId) external onlySigner nonReentrant {
+    function executeProposal(
+        uint256 proposalId
+    ) external onlySigner nonReentrant {
         Proposal storage proposal = proposals[proposalId];
         if (proposal.executed) revert ProposalAlreadyExecuted();
         if (proposal.votesFor < quorum) revert InsufficientVotesToExecute();
@@ -198,7 +214,9 @@ contract Multisig is ReentrancyGuard {
             if (!isSigner(proposal.signer)) revert NotASigner();
             _removeSigner(proposal.signer);
         } else if (proposal.proposalType == ProposalType.UpdateQuorum) {
-            if (proposal.newQuorum == 0 || proposal.newQuorum > signers.length) {
+            if (
+                proposal.newQuorum == 0 || proposal.newQuorum > signers.length
+            ) {
                 revert InvalidQuorum();
             }
             quorum = proposal.newQuorum;
@@ -219,31 +237,34 @@ contract Multisig is ReentrancyGuard {
      * @param voter The address of the signer to check
      * @return voted True if the signer has voted, false otherwise
      */
-    function hasVoted(uint256 proposalId, address voter) external view returns (bool voted) {
+    function hasVoted(
+        uint256 proposalId,
+        address voter
+    ) external view returns (bool voted) {
         if (!isSigner(voter)) revert NotAuthorizedSigner();
         Proposal storage proposal = proposals[proposalId];
         voted = proposal.voted[voter];
     }
 
+
     /**
      * @notice Settles an escrow milestone without requiring quorum
      * @param escrowContract Address of the escrow contract
-     * @param milestoneId ID of the milestone to settle
      * @param refundAmount Amount to refund to buyer
      * @param releaseAmount Amount to release to seller
      */
-    function settleMilestoneWithoutQuorum(
+    function resolveEscrow(
         address escrowContract,
-        uint256 milestoneId,
         uint256 refundAmount,
         uint256 releaseAmount
     ) external onlySigner nonReentrant {
-        try IEscrow(escrowContract).settleMilestone(milestoneId, refundAmount, releaseAmount) {}
-        catch {
+        try
+            IEscrow(escrowContract).resolveDispute(refundAmount, releaseAmount)
+        {} catch {
             revert EscrowContractFailed();
         }
 
-        emit MilestoneSettled(milestoneId, refundAmount, releaseAmount, msg.sender);
+        emit EscrowResolved(refundAmount, releaseAmount, msg.sender);
     }
 
     /**
@@ -266,6 +287,7 @@ contract Multisig is ReentrancyGuard {
         signers[index] = signers[signers.length - 1];
         signers.pop();
     }
+
 
     /**
      * @notice Retrieves the list of all authorized signers
