@@ -46,7 +46,7 @@ The `Multisig` contract serves as a governance layer to handle escrow disputes. 
 ### **2. Transaction Lifecycle**
 
 #### **Step 1: Create an Escrow**
-- The buyer or seller interacts with the DApp to initiate a new escrow.
+- The buyer interacts with the DApp to initiate a new escrow.
 - The `EscrowFactory` deploys a new `Escrow` contract instance with:
   - Buyer address.
   - Seller address.
