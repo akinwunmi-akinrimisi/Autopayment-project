@@ -97,6 +97,7 @@ contract Multisig is ReentrancyGuard {
     event VoteCasted(uint256 proposalId, address voter, bool support);
     event ProposalExecuted(uint256 proposalId);
     event EscrowResolved(
+        address escrowContract,
         uint256 refundAmount,
         uint256 releaseAmount,
         address indexed signer
@@ -246,7 +247,6 @@ contract Multisig is ReentrancyGuard {
         voted = proposal.voted[voter];
     }
 
-
     /**
      * @notice Settles an escrow milestone without requiring quorum
      * @param escrowContract Address of the escrow contract
@@ -264,7 +264,12 @@ contract Multisig is ReentrancyGuard {
             revert EscrowContractFailed();
         }
 
-        emit EscrowResolved(refundAmount, releaseAmount, msg.sender);
+        emit EscrowResolved(
+            escrowContract,
+            refundAmount,
+            releaseAmount,
+            msg.sender
+        );
     }
 
     /**
@@ -287,7 +292,6 @@ contract Multisig is ReentrancyGuard {
         signers[index] = signers[signers.length - 1];
         signers.pop();
     }
-
 
     /**
      * @notice Retrieves the list of all authorized signers

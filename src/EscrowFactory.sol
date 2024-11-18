@@ -17,8 +17,6 @@ contract EscrowFactory is Ownable {
     /// @notice Immutable token address used for payments
     address public immutable erc20Token;
 
-    /// @notice Time window in days for buyers to release funds
-    uint256 public releaseTimeout;
 
     /// @notice Fixed fee amount per milestone
     uint256 public flatFee;
@@ -77,7 +75,9 @@ contract EscrowFactory is Ownable {
     function createEscrow(
         string calldata invoiceId,
         address buyer,
-        address seller
+        address seller,
+        uint256 completionDuration,
+        uint256 releaseTimeout
     ) external returns (address) {
         // Check if invoiceId is empty
         if (bytes(invoiceId).length == 0) revert InvalidInvoiceId();
@@ -95,6 +95,7 @@ contract EscrowFactory is Ownable {
             erc20Token,
             flatFee,
             basepoints,
+            completionDuration,
             releaseTimeout
         );
 
@@ -161,12 +162,4 @@ contract EscrowFactory is Ownable {
         emit FeeUpdated(flatFee, basepoints);
     }
 
-    /**
-     * @notice Updates release timeout period
-     * @param _releaseTimeout New timeout duration in days
-     */
-    function updateReleaseTimeout(uint256 _releaseTimeout) external onlyOwner {
-        releaseTimeout = _releaseTimeout * 1 days;
-        emit TimeOutUpdated(_releaseTimeout);
-    }
 }
