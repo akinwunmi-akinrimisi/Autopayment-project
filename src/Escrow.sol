@@ -17,8 +17,11 @@ error DeadlineNotReached();
 error InvalidFee();
 error AlreadyFunded();
 error NotReadyForRelease();
-error NotFunded();
+error NotInProgress();
 error InvalidStatus();
+error DeadlinePassed();
+error ExtensionNotRequested();
+error InvalidExtensionDuration();
 
 /**
  * @title Escrow
@@ -32,14 +35,15 @@ contract Escrow {
     /**
      * @notice Status of the escrow
      * @param Unfunded Initial state, awaiting funding from buyer
-     * @param Funded Escrow has been funded but work not marked complete
+     * @param InProgress Escrow has been funded and in progress but work not marked complete
      * @param ReadyForRelease Marked as complete by seller, awaiting buyer release
      * @param Completed Funds have been released or refunded
      * @param Disputed Under dispute resolution by arbitrator
      */
     enum EscrowStatus {
         Unfunded,
-        Funded,
+        InProgress,
+        ExtensionRequested,
         ReadyForRelease,
         Completed,
         Disputed
@@ -58,6 +62,8 @@ contract Escrow {
     uint256 private immutable flatFee;
     /// @notice Fee percentage in basepoints (1 basepoint = 0.01%)
     uint256 private immutable basepoints;
+    /// @notice Duration for the seller to complete the task
+    uint256 public immutable completionDuration;
     /// @notice Duration until funds can be claimed by seller after marking ready
     uint256 public immutable releaseTimeout;
 
@@ -74,6 +80,9 @@ contract Escrow {
     /// @notice Timestamp when the current dispute was initiated
     uint256 public disputeTimestamp;
 
+    /// @notice Extension duration that was requested
+    uint256 public extensionDuration;
+
     /**
      * @notice Emitted when escrow is funded by buyer
      * @param amount Amount of tokens deposited
@@ -85,6 +94,12 @@ contract Escrow {
      * @param amount Amount of tokens released (excluding fees)
      */
     event FundsReleased(uint256 amount);
+
+    event ExtensionRequested(
+        uint256 extensionDuration,
+        uint256 currentDeadline
+    );
+    event ExtensionApproved(uint256 oldDeadline, uint256 newDeadline);
 
     /**
      * @notice Emitted when a dispute is initiated
@@ -133,6 +148,7 @@ contract Escrow {
      * @param _erc20Token Address of the ERC20 token used for payments
      * @param _flatFee Fixed fee amount
      * @param _bps Fee percentage in basepoints
+     * @param _completionDuration Time window for the seller to complete the task
      * @param _releaseTimeout Time window for buyer to release funds
      * @dev Initializes the contract with Unfunded status
      */
@@ -144,6 +160,7 @@ contract Escrow {
         address _erc20Token,
         uint256 _flatFee,
         uint256 _bps,
+        uint256 _completionDuration,
         uint256 _releaseTimeout
     ) {
         if (_buyer == address(0) || _seller == address(0)) {
@@ -158,7 +175,8 @@ contract Escrow {
         erc20Token = _erc20Token;
         flatFee = _flatFee;
         basepoints = _bps;
-        releaseTimeout = _releaseTimeout;
+        completionDuration = _completionDuration * 1 days;
+        releaseTimeout = _releaseTimeout * 1 days;
         status = EscrowStatus.Unfunded;
     }
 
@@ -168,6 +186,7 @@ contract Escrow {
      * @param _fee Amount of fee to be charged for the escrow
      * @dev Transfers fee to the arbitrator
      * @dev Transfers tokens from buyer to contract
+     * @dev Set the deadline for the seller to complete the task
      * Example of fee calculation:
      * If the flatFee is set to 50, and basepoints is 250 (2.5% fee),
      * and the amount is 1,000, the fee would be:
@@ -179,8 +198,8 @@ contract Escrow {
         if (_fee < fee) revert InvalidFee();
         IERC20(erc20Token).safeTransferFrom(buyer, arbitrator, fee);
         escrowAmount = amount;
-        status = EscrowStatus.Funded;
-
+        status = EscrowStatus.InProgress;
+        deadline = block.timestamp + completionDuration;
         IERC20(erc20Token).safeTransferFrom(buyer, address(this), amount);
         emit EscrowFunded(amount);
     }
@@ -191,11 +210,48 @@ contract Escrow {
      * @dev Sets release deadline for buyer action
      */
     function markReady() external onlySeller {
-        if (status != EscrowStatus.Funded) revert NotFunded();
+        if (status != EscrowStatus.InProgress) revert NotInProgress();
 
         status = EscrowStatus.ReadyForRelease;
         deadline = block.timestamp + releaseTimeout;
         emit MarkedReady();
+    }
+
+    /**
+     * @notice Allows the seller to request an extension to the escrow deadline.
+     * @dev The escrow must be in the InProgress state for an extension to be requested.
+     * @param _extensionDuration The duration (in days) by which the seller wants to extend the escrow deadline.
+     * @custom:requirements
+     * - Escrow status must be `InProgress`.
+     * - `_extensionDuration` must be greater than or equal to 1 day.
+     * @custom:emits Emits `ExtensionRequested` event on successful extension request.
+     */
+    function requestExtension(uint256 _extensionDuration) external onlySeller {
+        if (status != EscrowStatus.InProgress) revert NotInProgress();
+        if (_extensionDuration < 1) {
+            revert InvalidExtensionDuration();
+        }
+        status = EscrowStatus.ExtensionRequested;
+        extensionDuration = _extensionDuration * 1 days;
+        emit ExtensionRequested(_extensionDuration, deadline);
+    }
+
+    /**
+     * @notice Allows the buyer to approve an extension request made by the seller.
+     * @dev The escrow must be in the ExtensionRequested state for approval.
+     * @custom:effects Updates the escrow deadline by adding the requested extension duration.
+     * @custom:requirements
+     * - Escrow status must be `ExtensionRequested`.
+     * @custom:emits Emits `ExtensionApproved` event with the old and new deadlines.
+     */
+    function approveExtension() external onlyBuyer {
+        if (status != EscrowStatus.ExtensionRequested)
+            revert ExtensionNotRequested();
+        uint256 oldDeadline = deadline;
+        deadline = block.timestamp + extensionDuration;
+        extensionDuration = 0;
+        status = EscrowStatus.InProgress;
+        emit ExtensionApproved(oldDeadline, deadline);
     }
 
     /**
@@ -221,13 +277,14 @@ contract Escrow {
     }
 
     /**
-     * @notice Initiates a dispute for the escrow if status is either funded or ready for release
+     * @notice Initiates a dispute for the escrow if status is either in progress or extenstion requested or ready for release
      * @dev Can be called by only buyer
      * @dev Changes status to Disputed
      */
     function initiateDispute() external onlyBuyer {
         if (
-            status != EscrowStatus.Funded &&
+            status != EscrowStatus.InProgress &&
+            status != EscrowStatus.ExtensionRequested &&
             status != EscrowStatus.ReadyForRelease
         ) {
             revert InvalidStatus();
