@@ -5,7 +5,8 @@ const { parseUnits } = require("ethers");
 
 describe("Escrow", function () {
   async function deployEscrowFixture() {
-    const [deployer] = await ethers.getSigners();
+    // Get signers first so we can use them for addresses
+    const [deployer, buyer, seller, arbitrator] = await ethers.getSigners();
 
     const Token = await ethers.getContractFactory("MockERC20");
     const erc20Token = await Token.deploy();
@@ -16,9 +17,10 @@ describe("Escrow", function () {
     const releaseTimeout = 7;
     const invoiceId = "INV123";
 
-    const buyerAddress = ethers.Wallet.createRandom().address;
-    const sellerAddress = ethers.Wallet.createRandom().address;
-    const arbitratorAddress = ethers.Wallet.createRandom().address;
+    // Use signer addresses instead of random addresses
+    const buyerAddress = buyer.address;
+    const sellerAddress = seller.address;
+    const arbitratorAddress = arbitrator.address;
 
     const Escrow = await ethers.getContractFactory("Escrow");
     const escrow = await Escrow.deploy(
@@ -35,6 +37,9 @@ describe("Escrow", function () {
 
     return {
       escrow,
+      buyer,
+      seller,
+      arbitrator,
       buyerAddress,
       sellerAddress,
       arbitratorAddress,
@@ -44,6 +49,21 @@ describe("Escrow", function () {
       completionDuration,
       releaseTimeout,
     };
+  }
+
+  async function fundedEscrowFixture() {
+    const fixture = await deployEscrowFixture();
+    const { escrow, erc20Token, buyer } = fixture;
+
+    // Mint tokens to the buyer
+    await erc20Token.mint(buyer.address, parseUnits("1000", 18));
+
+    // Approve the escrow contract to spend tokens
+    await erc20Token
+      .connect(buyer)
+      .approve(escrow.target, parseUnits("1000", 18));
+
+    return fixture;
   }
 
   describe("Basic Setup and Constructor", function () {
@@ -69,13 +89,73 @@ describe("Escrow", function () {
 
     it("Should set a valid ERC20 token address", async function () {
       const { escrow, erc20Token } = await loadFixture(deployEscrowFixture);
-
-      // Check that the ERC20 token address is set correctly
       expect(await escrow.erc20Token()).to.equal(erc20Token.target);
-
-      // Verify the token has standard ERC20 functions like balanceOf
       const tokenBalance = await erc20Token.balanceOf(erc20Token.target);
-      expect(tokenBalance).to.be.a("bigint"); // ERC20 balance should return a big integer
+      expect(tokenBalance).to.be.a("bigint");
+    });
+  });
+
+  describe("Funding Escrow", function () {
+    it("Should only allow buyer to fund escrow", async function () {
+      const { escrow, seller } = await loadFixture(deployEscrowFixture);
+      await expect(
+        escrow
+          .connect(seller)
+          .fundEscrow(parseUnits("100", 18), parseUnits("10", 18))
+      ).to.be.revertedWithCustomError(escrow, "OnlyBuyerAllowed");
+    });
+
+    it("Should revert with insufficient fee", async function () {
+      const { escrow, buyer, erc20Token } = await loadFixture(
+        deployEscrowFixture
+      );
+
+      // Mint tokens to the buyer first
+      await erc20Token.mint(buyer.address, parseUnits("1000", 18));
+
+      // Approve spending
+      await erc20Token
+        .connect(buyer)
+        .approve(escrow.target, parseUnits("1000", 18));
+
+      await expect(
+        escrow
+          .connect(buyer)
+          .fundEscrow(parseUnits("100", 18), parseUnits("1", 18))
+      ).to.be.revertedWithCustomError(escrow, "InvalidFee");
+    });
+
+    it("Should fund escrow and update status", async function () {
+      const { escrow, buyer, arbitratorAddress } = await loadFixture(
+        fundedEscrowFixture
+      );
+
+      const escrowAmount = parseUnits("100", 18);
+      const fee = parseUnits("52.5", 18); // 50 flat + 2.5%
+
+      // Fund the escrow
+      await escrow.connect(buyer).fundEscrow(escrowAmount, fee);
+
+      // Check escrow amount
+      expect(await escrow.escrowAmount()).to.equal(escrowAmount);
+
+      // Check status
+      expect(await escrow.status()).to.equal(1); // InProgress
+    });
+
+    it("Should prevent re-funding an already funded escrow", async function () {
+      const { escrow, buyer } = await loadFixture(fundedEscrowFixture);
+
+      const escrowAmount = parseUnits("100", 18);
+      const fee = parseUnits("52.5", 18);
+
+      // First funding
+      await escrow.connect(buyer).fundEscrow(escrowAmount, fee);
+
+      // Try to fund again
+      await expect(
+        escrow.connect(buyer).fundEscrow(escrowAmount, fee)
+      ).to.be.revertedWithCustomError(escrow, "AlreadyFunded");
     });
   });
 });
