@@ -2,15 +2,15 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./Escrow.sol";
+import "./Flexiscrow.sol";
 
 /**
- * @title EscrowFactory
+ * @title Flexiscrow
  * @author  Roqib Yusuf's implementation
  * @notice Factory contract for deploying and tracking escrow instances
  * @dev Manages creation, configuration and tracking of escrow contracts
  */
-contract EscrowFactory is Ownable {
+contract FlexiscrowFactory is Ownable {
     /// @notice Immutable arbitrator address for all created escrows
     address public immutable arbitrator;
 
@@ -87,7 +87,7 @@ contract EscrowFactory is Ownable {
             revert EscrowAlreadyExists();
         }
 
-        Escrow escrow = new Escrow(
+        Flexiscrow escrow = new Flexiscrow(
             invoiceId,
             buyer,
             seller,

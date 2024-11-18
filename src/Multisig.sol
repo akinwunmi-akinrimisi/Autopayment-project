@@ -114,7 +114,7 @@ contract Multisig is ReentrancyGuard {
      * @param _quorum Number of required votes
      * @param _feeToken Address of the fee token
      */
-    constructor(address[] memory _signers, uint256 _quorum, IERC20 _feeToken) {
+    constructor(address[] memory _signers, uint256 _quorum, address _feeToken) {
         if (_signers.length == 0) revert SignersRequired();
         if (_quorum == 0 || _quorum > _signers.length) revert InvalidQuorum();
         if (address(_feeToken) == address(0)) revert InvalidERC20TokenAddress();
@@ -123,7 +123,7 @@ contract Multisig is ReentrancyGuard {
             signers.push(_signers[i]);
         }
         quorum = _quorum;
-        feeToken = _feeToken;
+        feeToken = IERC20(_feeToken);
     }
 
     /**
