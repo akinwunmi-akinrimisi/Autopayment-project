@@ -29,7 +29,7 @@ error InvalidExtensionDuration();
  * @notice A simple escrow contract for ERC20 tokens with arbitration capabilities
  * @dev Implements a secure payment system with a single escrow period
  */
-contract Escrow {
+contract Flexiscrow {
     using SafeERC20 for IERC20;
 
     /**
