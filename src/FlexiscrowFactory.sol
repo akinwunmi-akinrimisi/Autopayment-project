@@ -68,13 +68,11 @@ contract FlexiscrowFactory is Ownable {
     /**
      * @notice Creates and tracks a new escrow contract instance
      * @param invoiceId Unique identifier for the escrow
-     * @param buyer Address of the buyer
      * @param seller Address of the seller
      * @return Address of the newly created escrow contract
      */
     function createEscrow(
         string calldata invoiceId,
-        address buyer,
         address seller,
         uint256 completionDuration,
         uint256 releaseTimeout
@@ -86,6 +84,8 @@ contract FlexiscrowFactory is Ownable {
         if (escrows[invoiceId].escrowAddress != address(0)) {
             revert EscrowAlreadyExists();
         }
+
+        address buyer = msg.sender;
 
         Flexiscrow escrow = new Flexiscrow(
             invoiceId,
@@ -99,7 +99,6 @@ contract FlexiscrowFactory is Ownable {
             releaseTimeout
         );
 
-        // Store escrow details
         escrows[invoiceId] = EscrowDetails({
             escrowAddress: address(escrow),
             buyer: buyer,
@@ -107,7 +106,6 @@ contract FlexiscrowFactory is Ownable {
             createdAt: block.timestamp
         });
 
-        // Track invoice IDs
         allInvoiceIds.push(invoiceId);
 
         emit EscrowCreated(invoiceId, address(escrow), buyer, seller);
