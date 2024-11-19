@@ -87,7 +87,7 @@ contract EscrowFactory is Ownable {
             revert EscrowAlreadyExists();
         }
 
-        Escrow escrow = new Escrow(
+        Flexiscrow escrow = new Flexiscrow(
             invoiceId,
             buyer,
             seller,
