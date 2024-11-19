@@ -17,6 +17,11 @@ contract EscrowFactory is Ownable {
     /// @notice Immutable token address used for payments
     address public immutable erc20Token;
 
+    /// @notice Counter for generating unique invoice IDs
+    uint256 private invoiceCounter;
+
+    /// @notice Prefix for invoice IDs
+    string private constant PREFIX = "INV";
 
     /// @notice Fixed fee amount per milestone
     uint256 public flatFee;
@@ -65,30 +70,87 @@ contract EscrowFactory is Ownable {
         basepoints = _bps;
     }
 
+/**
+     * @notice Generates a unique invoice ID
+     * @return string The generated invoice ID
+     */
+    function _generateInvoiceId() private returns (string memory) {
+        invoiceCounter++;
+        // Convert counter and timestamp to strings and concatenate
+        return string(
+            abi.encodePacked(
+                PREFIX,
+                "-",
+                _uintToString(block.timestamp),
+                "-",
+                _uintToString(invoiceCounter)
+            )
+        );
+    }
+
     /**
-     * @notice Creates and tracks a new escrow contract instance
-     * @param invoiceId Unique identifier for the escrow
+     * @notice Converts a uint to a string
+     * @param _i The uint to convert
+     * @return string The resulting string
+     */
+    function _uintToString(uint256 _i) private pure returns (string memory) {
+        if (_i == 0) {
+            return "0";
+        }
+        uint256 temp = _i;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (_i != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + _i % 10));
+            _i /= 10;
+        }
+        return string(buffer);
+    }
+
+    /**
+     * @notice Creates and tracks a new escrow contract instance with auto-generated invoice ID
      * @param buyer Address of the buyer
      * @param seller Address of the seller
-     * @return Address of the newly created escrow contract
+     * @param completionDuration Duration for completion in days
+     * @param releaseTimeout Timeout duration for release in days
+     * @param buyerEmailAddress Email address of the buyer
+     * @param buyerFirstName First name of the buyer
+     * @param buyerLastName Last name of the buyer
+     * @param productName Name of the product
+     * @param productDescription Description of the product
+     * @param productPrice Price of the product
+     * @return generatedInvoiceId The generated unique invoice ID
+     * @return escrowAddr The address of the newly created escrow contract
      */
+
     function createEscrow(
-        string calldata invoiceId,
+        // string calldata invoiceId,
         address buyer,
         address seller,
         uint256 completionDuration,
-        uint256 releaseTimeout
-    ) external returns (address) {
-        // Check if invoiceId is empty
-        if (bytes(invoiceId).length == 0) revert InvalidInvoiceId();
-
+        uint256 releaseTimeout,
+        string memory buyerEmailAddress,
+        string memory buyerFirstName,
+        string memory buyerLastName,
+        string memory productName,
+        string memory productDescription,
+        uint256 productPrice
+    ) external returns (string memory generatedInvoiceId, address escrowAddr) {
+        // Generate unique invoice ID
+        generatedInvoiceId = _generateInvoiceId();
+    
         // Check if escrow already exists
-        if (escrows[invoiceId].escrowAddress != address(0)) {
+        if (escrows[generatedInvoiceId].escrowAddress != address(0)) {
             revert EscrowAlreadyExists();
         }
 
         Flexiscrow escrow = new Flexiscrow(
-            invoiceId,
+            generatedInvoiceId,
             buyer,
             seller,
             arbitrator,
@@ -96,22 +158,30 @@ contract EscrowFactory is Ownable {
             flatFee,
             basepoints,
             completionDuration,
-            releaseTimeout
+            releaseTimeout,
+            buyerEmailAddress,
+            buyerFirstName,
+            buyerLastName,
+            productName,
+            productDescription,
+            productPrice                       
         );
-
+        
+        escrowAddr = address(escrow);
+        
         // Store escrow details
-        escrows[invoiceId] = EscrowDetails({
-            escrowAddress: address(escrow),
+        escrows[generatedInvoiceId] = EscrowDetails({
+            escrowAddress: escrowAddr,
             buyer: buyer,
             seller: seller,
             createdAt: block.timestamp
         });
 
         // Track invoice IDs
-        allInvoiceIds.push(invoiceId);
+        allInvoiceIds.push(generatedInvoiceId);
 
-        emit EscrowCreated(invoiceId, address(escrow), buyer, seller);
-        return address(escrow);
+        emit EscrowCreated(generatedInvoiceId, escrowAddr, buyer, seller);
+        return (generatedInvoiceId, escrowAddr);
     }
 
     /**

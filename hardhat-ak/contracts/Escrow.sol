@@ -49,7 +49,6 @@ contract Flexiscrow {
         Disputed
     }
 
-    string public invoiceId;
     /// @notice Address of the buyer who deposits funds
     address private immutable buyer;
     /// @notice Address of the seller who receives funds
@@ -67,8 +66,6 @@ contract Flexiscrow {
     /// @notice Duration until funds can be claimed by seller after marking ready
     uint256 public immutable releaseTimeout;
 
-    /// @notice Current status of the escrow
-    EscrowStatus public status;
     /// @notice Amount held in escrow
     uint256 public escrowAmount;
     /// @notice Deadline for buyer to act after seller marks ready
@@ -82,6 +79,19 @@ contract Flexiscrow {
 
     /// @notice Extension duration that was requested
     uint256 public extensionDuration;
+
+    uint256 productPrice;
+
+    string public invoiceId;
+    string buyerEmailAddress;
+    string buyerFirstName;
+    string buyerLastName;
+    string productName;
+    string productDescription;
+
+    /// @notice Current status of the escrow
+    EscrowStatus public status;
+
 
     /**
      * @notice Emitted when escrow is funded by buyer
@@ -161,7 +171,13 @@ contract Flexiscrow {
         uint256 _flatFee,
         uint256 _bps,
         uint256 _completionDuration,
-        uint256 _releaseTimeout
+        uint256 _releaseTimeout,
+        string memory _buyerEmailAddress,
+        string memory _buyerFirstName,
+        string memory _buyerLastName,
+        string memory _productName,
+        string memory _productDescription,
+        uint256 _productPrice
     ) {
         if (_buyer == address(0) || _seller == address(0)) {
             revert InvalidBuyerOrSellerAddress();
@@ -177,6 +193,12 @@ contract Flexiscrow {
         basepoints = _bps;
         completionDuration = _completionDuration * 1 days;
         releaseTimeout = _releaseTimeout * 1 days;
+        buyerEmailAddress = _buyerEmailAddress;
+        buyerFirstName = _buyerFirstName;
+        buyerLastName = _buyerLastName;
+        productName = _productName;
+        productDescription = _productDescription;
+        productPrice = _productPrice;
         status = EscrowStatus.Unfunded;
     }
 
@@ -222,9 +244,9 @@ contract Flexiscrow {
      * @dev The escrow must be in the InProgress state for an extension to be requested.
      * @param _extensionDuration The duration (in days) by which the seller wants to extend the escrow deadline.
      * @custom:requirements
-     * - Escrow status must be `InProgress`.
-     * - `_extensionDuration` must be greater than or equal to 1 day.
-     * @custom:emits Emits `ExtensionRequested` event on successful extension request.
+     * - Escrow status must be InProgress.
+     * - _extensionDuration must be greater than or equal to 1 day.
+     * @custom:emits Emits ExtensionRequested event on successful extension request.
      */
     function requestExtension(uint256 _extensionDuration) external onlySeller {
         if (status != EscrowStatus.InProgress) revert NotInProgress();
@@ -241,8 +263,8 @@ contract Flexiscrow {
      * @dev The escrow must be in the ExtensionRequested state for approval.
      * @custom:effects Updates the escrow deadline by adding the requested extension duration.
      * @custom:requirements
-     * - Escrow status must be `ExtensionRequested`.
-     * @custom:emits Emits `ExtensionApproved` event with the old and new deadlines.
+     * - Escrow status must be ExtensionRequested.
+     * @custom:emits Emits ExtensionApproved event with the old and new deadlines.
      */
     function approveExtension() external onlyBuyer {
         if (status != EscrowStatus.ExtensionRequested)
