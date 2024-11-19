@@ -1,5 +1,5 @@
-const CONTRACT_ADDRESS = "0x9B84831d24fb998a1231E63961ECe5888E9f503F";
-const ABI = [
+const CONTRACT_ADDRESS = "0x3928F62ccfd6CBE605a9630ab4a7f40fdE743F65";
+const ABI =[
     {
         "type": "constructor",
         "inputs": [
@@ -36,7 +36,6 @@ const ABI = [
         "name": "createEscrow",
         "inputs": [
             { "name": "invoiceId", "type": "string", "internalType": "string" },
-            { "name": "buyer", "type": "address", "internalType": "address" },
             { "name": "seller", "type": "address", "internalType": "address" },
             {
                 "name": "completionDuration",
