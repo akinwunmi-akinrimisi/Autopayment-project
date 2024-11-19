@@ -3,7 +3,7 @@ const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 const { ethers } = require("hardhat");
 const { parseUnits } = require("ethers");
 
-describe("Escrow", function () {
+describe("Flexiscrow", function () {
   async function deployEscrowFixture() {
     // Get signers first so we can use them for addresses
     const [deployer, buyer, seller, arbitrator] = await ethers.getSigners();
@@ -22,7 +22,7 @@ describe("Escrow", function () {
     const sellerAddress = seller.address;
     const arbitratorAddress = arbitrator.address;
 
-    const Escrow = await ethers.getContractFactory("Escrow");
+    const Escrow = await ethers.getContractFactory("Flexiscrow");
     const escrow = await Escrow.deploy(
       invoiceId,
       buyerAddress,

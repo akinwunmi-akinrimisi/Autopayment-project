@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.7;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract MockERC20 is ERC20 {
-    constructor() ERC20("Mock Token", "MCK") {
-        _mint(msg.sender, 1_000_000 * 10 ** decimals());
+contract MockERC20 is ERC20("Lisk", "LSK") {
+    constructor() {
+        _mint(msg.sender, 100000000e18);
     }
 
-    function mint(address to, uint256 amount) public {
-        _mint(to, amount);
+    function mint(uint256 _amount) external {
+        require(msg.sender != address(0), "Address zero detected");
+
+        _mint(msg.sender, _amount * 1e18);
     }
-    
 }
