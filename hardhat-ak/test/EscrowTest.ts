@@ -19,6 +19,12 @@ describe("Flexiscrow", function () {
     const completionDuration = 30;
     const releaseTimeout = 7;
     const invoiceId = "INV123";
+    const buyerEmailAddress = "buyer@example.com";
+    const buyerFirstName = "John";
+    const buyerLastName = "Doe";
+    const productName = "Test Product";
+    const productDescription = "A test product description";
+    const productPrice = ethers.parseUnits("100", 18);
 
     const Escrow = await ethers.getContractFactory("Flexiscrow");
     const escrow = (await Escrow.deploy(
@@ -30,7 +36,13 @@ describe("Flexiscrow", function () {
       flatFee,
       basepoints,
       completionDuration,
-      releaseTimeout
+      releaseTimeout,
+      buyerEmailAddress,
+      buyerFirstName,
+      buyerLastName,
+      productName,
+      productDescription,
+      productPrice
     )) as Flexiscrow;
     await escrow.waitForDeployment();
 
@@ -43,6 +55,13 @@ describe("Flexiscrow", function () {
       flatFee,
       basepoints,
       deployer,
+      invoiceId,
+      buyerEmailAddress,
+      buyerFirstName,
+      buyerLastName,
+      productName,
+      productDescription,
+      productPrice,
     };
   }
 
@@ -64,8 +83,8 @@ describe("Flexiscrow", function () {
     });
 
     it("Should set the correct invoice ID", async function () {
-      const { escrow } = await loadFixture(deployEscrowFixture);
-      expect(await escrow.invoiceId()).to.equal("INV123");
+      const { escrow, invoiceId } = await loadFixture(deployEscrowFixture);
+      expect(await escrow.invoiceId()).to.equal(invoiceId);
     });
   });
 
@@ -101,9 +120,8 @@ describe("Flexiscrow", function () {
     });
 
     it("Should fund escrow and update status", async function () {
-      const { escrow, buyer, erc20Token, deployer } = await loadFixture(
-        deployEscrowFixture
-      );
+      const { escrow, buyer, erc20Token, deployer, arbitrator } =
+        await loadFixture(deployEscrowFixture);
 
       const amount = ethers.parseUnits("100", 18);
       const fee = ethers.parseUnits("52.5", 18); // 50 flat + 2.5%
@@ -111,7 +129,8 @@ describe("Flexiscrow", function () {
 
       // Mint tokens to buyer
       await erc20Token.connect(deployer).mint(buyer.address, totalAmount);
-      // Approve spending
+
+      // Approve total amount to escrow contract instead of splitting
       await erc20Token
         .connect(buyer)
         .approve(await escrow.getAddress(), totalAmount);
@@ -132,9 +151,10 @@ describe("Flexiscrow", function () {
       const fee = ethers.parseUnits("52.5", 18);
       const totalAmount = amount + fee;
 
-      // Mint tokens to buyer
+      // Mint TOTAL amount to buyer
       await erc20Token.connect(deployer).mint(buyer.address, totalAmount);
-      // Approve spending
+
+      // Approve TOTAL amount to escrow contract
       await erc20Token
         .connect(buyer)
         .approve(await escrow.getAddress(), totalAmount);
@@ -142,7 +162,7 @@ describe("Flexiscrow", function () {
       // First funding
       await escrow.connect(buyer).fundEscrow(amount, fee);
 
-      // Try to fund again
+      // Try to fund again - should revert
       await expect(
         escrow.connect(buyer).fundEscrow(amount, fee)
       ).to.be.revertedWithCustomError(escrow, "AlreadyFunded");
@@ -159,11 +179,15 @@ describe("Flexiscrow", function () {
       const fee = ethers.parseUnits("52.5", 18);
       const totalAmount = amount + fee;
 
+      // Mint TOTAL amount to buyer
       await erc20Token.connect(deployer).mint(buyer.address, totalAmount);
+
+      // Approve TOTAL amount to escrow contract
       await erc20Token
         .connect(buyer)
         .approve(await escrow.getAddress(), totalAmount);
 
+      // Verify event emission
       await expect(escrow.connect(buyer).fundEscrow(amount, fee))
         .to.emit(escrow, "EscrowFunded")
         .withArgs(amount);
