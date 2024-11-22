@@ -74,8 +74,7 @@ contract FlexiscrowFactory is Ownable {
     function createEscrow(
         string calldata invoiceId,
         address seller,
-        uint256 completionDuration,
-        uint256 releaseTimeout
+        uint256 completionDuration
     ) external returns (address) {
         // Check if invoiceId is empty
         if (bytes(invoiceId).length == 0) revert InvalidInvoiceId();
@@ -95,8 +94,7 @@ contract FlexiscrowFactory is Ownable {
             erc20Token,
             flatFee,
             basepoints,
-            completionDuration,
-            releaseTimeout
+            completionDuration
         );
 
         escrows[invoiceId] = EscrowDetails({
