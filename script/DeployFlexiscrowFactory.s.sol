@@ -26,5 +26,5 @@ contract DeployFlexiscrowFactory is Script {
     }
 }
 
-// 0x3928F62ccfd6CBE605a9630ab4a7f40fdE743F65
+// 0x9dcB214fcC8138AceA795Bc5cc339cdD11D26Edc
 // ╰─ forge script script/DeployFlexiscrowFactory.s.sol --rpc-url $ETH_RPC_URL --account defaultKey --broadcast --verify --verifier blockscout --verifier-url $VERIFIER_URL

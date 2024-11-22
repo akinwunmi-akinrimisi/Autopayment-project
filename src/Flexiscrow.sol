@@ -22,135 +22,157 @@ error InvalidStatus();
 error DeadlinePassed();
 error ExtensionNotRequested();
 error InvalidExtensionDuration();
+error ExtensionResponseDeadlinePassed();
+error NoExtensionRequested();
+error ExtensionResponseTimeNotPassed();
 
 /**
- * @title Escrow
- * @author Roqib Yusuf's implementation
- * @notice A simple escrow contract for ERC20 tokens with arbitration capabilities
- * @dev Implements a secure payment system with a single escrow period
+ * @title Flexiscrow
+ * @author Roib Yusuf
+ * @notice A flexible escrow contract for handling ERC20 token transactions between buyers and sellers
+ * @dev Implements a sophisticated escrow system with extension requests, dispute resolution, and penalty calculations
  */
 contract Flexiscrow {
     using SafeERC20 for IERC20;
 
     /**
-     * @notice Status of the escrow
-     * @param Unfunded Initial state, awaiting funding from buyer
-     * @param InProgress Escrow has been funded and in progress but work not marked complete
-     * @param ReadyForRelease Marked as complete by seller, awaiting buyer release
-     * @param Completed Funds have been released or refunded
-     * @param Disputed Under dispute resolution by arbitrator
+     * @notice Enum representing the possible states of the escrow
+     * @dev The escrow progresses through these states based on participant actions
      */
     enum EscrowStatus {
-        Unfunded,
-        InProgress,
-        ExtensionRequested,
-        ReadyForRelease,
-        Completed,
-        Disputed
+        Unfunded, // Initial state
+        InProgress, // Escrow is funded and work can begin
+        ExtensionRequested, // Seller has requested deadline extension
+        ReadyForRelease, // Work is complete and ready for buyer review
+        Completed, // Transaction has been completed
+        Disputed // Dispute has been raised
     }
 
+    /**
+     * @notice Struct containing time-related configuration
+     * @param completionDuration Duration allowed for completion in seconds
+     * @param deadline Current deadline timestamp
+     * @param originalDeadline Initial deadline timestamp before any extensions
+     */
+    struct TimeConfig {
+        uint256 completionDuration;
+        uint256 deadline;
+        uint256 originalDeadline;
+    }
+
+    /**
+     * @notice Struct containing data related to deadline extensions
+     * @param extensionDuration Requested extension duration in seconds
+     * @param extensionRequestTimestamp When the extension was requested
+     * @param extensionApprovedTimestamp When the extension was approved
+     * @param approvedExtensionDeadline New deadline after extension approval
+     */
+    struct ExtensionData {
+        uint256 extensionDuration;
+        uint256 extensionRequestTimestamp;
+        uint256 extensionApprovedTimestamp;
+        uint256 approvedExtensionDeadline;
+    }
+
+    /**
+     * @notice Struct containing dispute-related information
+     * @param isDisputed Whether the escrow is currently disputed
+     * @param disputeInitiator Address that initiated the dispute
+     * @param disputeTimestamp When the dispute was initiated
+     */
+    struct DisputeData {
+        bool isDisputed;
+        address disputeInitiator;
+        uint256 disputeTimestamp;
+    }
+
+    /**
+     * @notice Struct containing the current state of the escrow
+     * @param currentStatus Current status of the escrow
+     * @param previousStatus Previous status before the last state change
+     * @param escrowAmount Amount of tokens in escrow
+     * @param readyTimestamp When the seller marked the work as ready
+     */
+    struct EscrowState {
+        EscrowStatus currentStatus;
+        EscrowStatus previousStatus;
+        uint256 escrowAmount;
+        uint256 readyTimestamp;
+    }
+
+    /// @notice Penalty rate in basis points (1.5% per day)
+    uint256 constant PENALTY_RATE = 150;
+    /// @notice Timeout period for various operations
+    uint256 constant TIMEOUT = 3 days;
+    /// @notice Unique identifier for the associated invoice
     string public invoiceId;
-    /// @notice Address of the buyer who deposits funds
-    address private immutable buyer;
-    /// @notice Address of the seller who receives funds
-    address private immutable seller;
-    /// @notice Address of the arbitrator who can resolve disputes
-    address private immutable arbitrator;
-    /// @notice Address of the ERC20 token used for payments
-    address private immutable erc20Token;
-    /// @notice Fixed fee amount charged
-    uint256 private immutable flatFee;
+    /// @notice Address of the buyer
+    address immutable buyer;
+    /// @notice Address of the seller
+    address immutable seller;
+    /// @notice Address of the arbitrator
+    address immutable arbitrator;
+    /// @notice Address of the ERC20 token used for payment
+    address immutable erc20Token;
+    /// @notice Flat fee charged by the arbitrator
+    uint256 immutable flatFee;
     /// @notice Fee percentage in basepoints (1 basepoint = 0.01%)
-    uint256 private immutable basepoints;
-    /// @notice Duration for the seller to complete the task
-    uint256 public immutable completionDuration;
-    /// @notice Duration until funds can be claimed by seller after marking ready
-    uint256 public immutable releaseTimeout;
+    uint256 immutable basepoints;
 
-    /// @notice Current status of the escrow
-    EscrowStatus public status;
-    /// @notice Amount held in escrow
-    uint256 public escrowAmount;
-    /// @notice Deadline for buyer to act after seller marks ready
-    uint256 public deadline;
-    /// @notice Flag indicating if there's an active dispute
-    bool public isDisputed;
-    /// @notice Address that initiated the current dispute
-    address public disputeInitiator;
-    /// @notice Timestamp when the current dispute was initiated
-    uint256 public disputeTimestamp;
+    TimeConfig public timeConfig;
+    ExtensionData public extensionData;
+    DisputeData public disputeData;
+    EscrowState public state;
 
-    /// @notice Extension duration that was requested
-    uint256 public extensionDuration;
-
-    /**
-     * @notice Emitted when escrow is funded by buyer
-     * @param amount Amount of tokens deposited
-     */
+    /// @notice Emitted when the escrow is funded
     event EscrowFunded(uint256 amount);
-
-    /**
-     * @notice Emitted when funds are released to seller
-     * @param amount Amount of tokens released (excluding fees)
-     */
-    event FundsReleased(uint256 amount);
-
+    /// @notice Emitted when funds are released to the seller
+    event FundsReleased(uint256 amount, uint256 penalty);
+    /// @notice Emitted when seller requests a deadline extension
     event ExtensionRequested(
         uint256 extensionDuration,
-        uint256 currentDeadline
+        uint256 requestTimestamp
     );
-    event ExtensionApproved(uint256 oldDeadline, uint256 newDeadline);
-
-    /**
-     * @notice Emitted when a dispute is initiated
-     * @param initiator Address that initiated the dispute
-     */
-    event DisputeInitiated(address initiator);
-
-    /**
-     * @notice Emitted when arbitrator resolves a dispute
-     * @param refundAmount Amount refunded to buyer
-     * @param releaseAmount Amount released to seller
-     */
+    /// @notice Emitted when buyer approves an extension request
+    event ExtensionApproved(uint256 approvedTimestamp, uint256 newDeadline);
+    /// @notice Emitted when a dispute is initiated
+    event DisputeInitiated(address initiator, string reason);
+    /// @notice Emitted when a dispute is resolved
     event DisputeResolved(uint256 refundAmount, uint256 releaseAmount);
-
-    /**
-     * @notice Emitted when seller marks work as ready for release
-     */
-    event MarkedReady();
-
-    /**
-     * @notice Emitted when funds are refunded to buyer
-     * @param amount Amount refunded
-     */
+    /// @notice Emitted when seller marks work as ready
+    event MarkedReady(uint256 timestamp);
+    /// @notice Emitted when funds are refunded to the buyer
     event FundsRefunded(uint256 amount);
 
+    /// @notice Ensures only the buyer can call the function
     modifier onlyBuyer() {
         if (msg.sender != buyer) revert OnlyBuyerAllowed();
         _;
     }
 
+    /// @notice Ensures only the seller can call the function
     modifier onlySeller() {
         if (msg.sender != seller) revert OnlySellerAllowed();
         _;
     }
 
+    /// @notice Ensures only the arbitrator can call the function
     modifier onlyArbitrator() {
         if (msg.sender != arbitrator) revert OnlyArbitratorAllowed();
         _;
     }
 
     /**
-     * @notice Creates a new Escrow contract
+     * @notice Constructs a new Flexiscrow contract
+     * @dev Sets up the escrow with initial parameters and validates addresses
+     * @param _invoiceId Unique identifier for the invoice
      * @param _buyer Address of the buyer
      * @param _seller Address of the seller
      * @param _arbitrator Address of the arbitrator
-     * @param _erc20Token Address of the ERC20 token used for payments
-     * @param _flatFee Fixed fee amount
-     * @param _bps Fee percentage in basepoints
-     * @param _completionDuration Time window for the seller to complete the task
-     * @param _releaseTimeout Time window for buyer to release funds
-     * @dev Initializes the contract with Unfunded status
+     * @param _erc20Token Address of the ERC20 token used for payment
+     * @param _flatFee Flat fee charged by the arbitrator
+     * @param _bps Percentage fee in basis points
+     * @param _completionDuration Duration allowed for completion in days
      */
     constructor(
         string memory _invoiceId,
@@ -160,14 +182,14 @@ contract Flexiscrow {
         address _erc20Token,
         uint256 _flatFee,
         uint256 _bps,
-        uint256 _completionDuration,
-        uint256 _releaseTimeout
+        uint256 _completionDuration
     ) {
         if (_buyer == address(0) || _seller == address(0)) {
             revert InvalidBuyerOrSellerAddress();
         }
         if (_arbitrator == address(0)) revert InvalidArbitratorAddress();
         if (_erc20Token == address(0)) revert InvalidERC20TokenAddress();
+
         invoiceId = _invoiceId;
         buyer = _buyer;
         seller = _seller;
@@ -175,9 +197,12 @@ contract Flexiscrow {
         erc20Token = _erc20Token;
         flatFee = _flatFee;
         basepoints = _bps;
-        completionDuration = _completionDuration * 1 days;
-        releaseTimeout = _releaseTimeout * 1 days;
-        status = EscrowStatus.Unfunded;
+
+        timeConfig = TimeConfig({
+            completionDuration: _completionDuration * 1 days,
+            deadline: 0,
+            originalDeadline: 0
+        });
     }
 
     /**
@@ -193,15 +218,92 @@ contract Flexiscrow {
      * 50 + (1000 * 250) / 10,000 = 75
      */
     function fundEscrow(uint256 amount, uint256 _fee) external onlyBuyer {
-        if (status != EscrowStatus.Unfunded) revert AlreadyFunded();
+        if (state.currentStatus != EscrowStatus.Unfunded)
+            revert AlreadyFunded();
         uint256 fee = (amount * basepoints) / 10_000 + flatFee;
         if (_fee < fee) revert InvalidFee();
+
         IERC20(erc20Token).safeTransferFrom(buyer, arbitrator, fee);
-        escrowAmount = amount;
-        status = EscrowStatus.InProgress;
-        deadline = block.timestamp + completionDuration;
+        state.escrowAmount = amount;
+        state.previousStatus = state.currentStatus;
+        state.currentStatus = EscrowStatus.InProgress;
+
+        timeConfig.deadline = block.timestamp + timeConfig.completionDuration;
+        timeConfig.originalDeadline = timeConfig.deadline;
+
         IERC20(erc20Token).safeTransferFrom(buyer, address(this), amount);
         emit EscrowFunded(amount);
+    }
+
+    /**
+     * @notice Allows seller to request a deadline extension
+     * @dev Changes escrow status to ExtensionRequested
+     * @param _extensionDuration Requested extension duration in days
+     */
+    function requestExtension(uint256 _extensionDuration) external onlySeller {
+        if (state.currentStatus != EscrowStatus.InProgress)
+            revert NotInProgress();
+        if (_extensionDuration < 1) revert InvalidExtensionDuration();
+
+        state.previousStatus = state.currentStatus;
+        state.currentStatus = EscrowStatus.ExtensionRequested;
+        extensionData.extensionDuration = _extensionDuration * 1 days;
+        extensionData.extensionRequestTimestamp = block.timestamp;
+
+        emit ExtensionRequested(_extensionDuration, block.timestamp);
+    }
+
+    /**
+     * @notice Allows buyer to approve an extension request
+     * @dev Updates deadline and returns escrow to InProgress status
+     */
+    function approveExtension() external onlyBuyer {
+        if (state.currentStatus != EscrowStatus.ExtensionRequested)
+            revert ExtensionNotRequested();
+
+        state.previousStatus = state.currentStatus;
+        state.currentStatus = EscrowStatus.InProgress;
+        extensionData.extensionApprovedTimestamp = block.timestamp;
+
+        if (block.timestamp < timeConfig.originalDeadline) {
+            extensionData.approvedExtensionDeadline =
+                timeConfig.originalDeadline +
+                extensionData.extensionDuration;
+        } else {
+            extensionData.approvedExtensionDeadline =
+                block.timestamp +
+                extensionData.extensionDuration;
+        }
+
+        emit ExtensionApproved(
+            extensionData.extensionApprovedTimestamp,
+            extensionData.approvedExtensionDeadline
+        );
+    }
+
+    /**
+     * @notice Allows seller to open a dispute if buyer doesn't respond to extension
+     * @dev Changes status to Disputed if buyer hasn't responded within timeout
+     */
+    function openDisputeForExtension() external onlySeller {
+        if (state.currentStatus != EscrowStatus.ExtensionRequested)
+            revert NoExtensionRequested();
+        if (
+            block.timestamp < extensionData.extensionRequestTimestamp + TIMEOUT
+        ) {
+            revert ExtensionResponseTimeNotPassed();
+        }
+
+        state.previousStatus = state.currentStatus;
+        state.currentStatus = EscrowStatus.Disputed;
+        disputeData.isDisputed = true;
+        disputeData.disputeInitiator = msg.sender;
+        disputeData.disputeTimestamp = block.timestamp;
+
+        emit DisputeInitiated(
+            msg.sender,
+            "Buyer did not respond to extension request"
+        );
     }
 
     /**
@@ -210,69 +312,59 @@ contract Flexiscrow {
      * @dev Sets release deadline for buyer action
      */
     function markReady() external onlySeller {
-        if (status != EscrowStatus.InProgress) revert NotInProgress();
+        if (state.currentStatus != EscrowStatus.InProgress)
+            revert NotInProgress();
 
-        status = EscrowStatus.ReadyForRelease;
-        deadline = block.timestamp + releaseTimeout;
-        emit MarkedReady();
+        state.previousStatus = state.currentStatus;
+        state.currentStatus = EscrowStatus.ReadyForRelease;
+        state.readyTimestamp = block.timestamp;
+        timeConfig.deadline = block.timestamp + TIMEOUT;
+
+        emit MarkedReady(block.timestamp);
     }
 
     /**
-     * @notice Allows the seller to request an extension to the escrow deadline.
-     * @dev The escrow must be in the InProgress state for an extension to be requested.
-     * @param _extensionDuration The duration (in days) by which the seller wants to extend the escrow deadline.
-     * @custom:requirements
-     * - Escrow status must be `InProgress`.
-     * - `_extensionDuration` must be greater than or equal to 1 day.
-     * @custom:emits Emits `ExtensionRequested` event on successful extension request.
+     * @notice Calculates late delivery penalty
+     * @dev Penalty is calculated based on days late and penalty rate
+     * @return uint256 Penalty amount in tokens
      */
-    function requestExtension(uint256 _extensionDuration) external onlySeller {
-        if (status != EscrowStatus.InProgress) revert NotInProgress();
-        if (_extensionDuration < 1) {
-            revert InvalidExtensionDuration();
+    function calculatePenalty() public view returns (uint256) {
+        if (
+            extensionData.extensionApprovedTimestamp <
+            timeConfig.originalDeadline
+        ) {
+            if (state.readyTimestamp <= timeConfig.originalDeadline) return 0;
+            uint256 daysLate = (state.readyTimestamp -
+                timeConfig.originalDeadline) / 1 days;
+            if (daysLate == 0) return 0;
+            return (state.escrowAmount * PENALTY_RATE * daysLate) / 10000;
+        } else {
+            uint256 daysLate = (extensionData.extensionApprovedTimestamp -
+                state.readyTimestamp) / 1 days;
+            if (daysLate == 0) return 0;
+            return (state.escrowAmount * PENALTY_RATE * daysLate) / 10000;
         }
-        status = EscrowStatus.ExtensionRequested;
-        extensionDuration = _extensionDuration * 1 days;
-        emit ExtensionRequested(_extensionDuration, deadline);
     }
 
     /**
-     * @notice Allows the buyer to approve an extension request made by the seller.
-     * @dev The escrow must be in the ExtensionRequested state for approval.
-     * @custom:effects Updates the escrow deadline by adding the requested extension duration.
-     * @custom:requirements
-     * - Escrow status must be `ExtensionRequested`.
-     * @custom:emits Emits `ExtensionApproved` event with the old and new deadlines.
-     */
-    function approveExtension() external onlyBuyer {
-        if (status != EscrowStatus.ExtensionRequested)
-            revert ExtensionNotRequested();
-        uint256 oldDeadline = deadline;
-        deadline = block.timestamp + extensionDuration;
-        extensionDuration = 0;
-        status = EscrowStatus.InProgress;
-        emit ExtensionApproved(oldDeadline, deadline);
-    }
-
-    /**
-     * @notice Releases escrow funds to seller
-     * @dev Can only be called by buyer
-     * @dev Transfers funds to seller and fees to fee recipient
+     * @notice Allows buyer to release funds to seller
+     * @dev Transfers funds minus any penalties
      */
     function releaseFunds() external onlyBuyer {
-        if (status != EscrowStatus.ReadyForRelease) revert NotReadyForRelease();
+        if (state.currentStatus != EscrowStatus.ReadyForRelease)
+            revert NotReadyForRelease();
+
         _releaseFunds();
     }
 
     /**
-     * @notice Claims escrow funds after buyer timeout
-     * @dev Can only be called by seller after deadline
-     * @dev Transfers funds to seller and fees to fee recipient
+     * @notice Allows seller to claim funds after review period
+     * @dev Transfers funds if buyer hasn't responded within timeout
      */
     function claimFunds() external onlySeller {
-        if (status != EscrowStatus.ReadyForRelease) revert NotReadyForRelease();
-        if (block.timestamp < deadline) revert DeadlineNotReached();
-
+        if (state.currentStatus != EscrowStatus.ReadyForRelease)
+            revert NotReadyForRelease();
+        if (block.timestamp < timeConfig.deadline) revert DeadlineNotReached();
         _releaseFunds();
     }
 
@@ -281,20 +373,23 @@ contract Flexiscrow {
      * @dev Can be called by only buyer
      * @dev Changes status to Disputed
      */
+
     function initiateDispute() external onlyBuyer {
         if (
-            status != EscrowStatus.InProgress &&
-            status != EscrowStatus.ExtensionRequested &&
-            status != EscrowStatus.ReadyForRelease
+            state.currentStatus != EscrowStatus.InProgress &&
+            state.currentStatus != EscrowStatus.ExtensionRequested &&
+            state.currentStatus != EscrowStatus.ReadyForRelease
         ) {
             revert InvalidStatus();
         }
 
-        status = EscrowStatus.Disputed;
-        isDisputed = true;
-        disputeInitiator = msg.sender;
-        disputeTimestamp = block.timestamp;
-        emit DisputeInitiated(msg.sender);
+        state.previousStatus = state.currentStatus;
+        state.currentStatus = EscrowStatus.Disputed;
+        disputeData.isDisputed = true;
+        disputeData.disputeInitiator = msg.sender;
+        disputeData.disputeTimestamp = block.timestamp;
+
+        emit DisputeInitiated(msg.sender, "Buyer initiated dispute");
     }
 
     /**
@@ -308,9 +403,10 @@ contract Flexiscrow {
         uint256 refundAmount,
         uint256 releaseAmount
     ) external onlyArbitrator {
-        if (!isDisputed) revert NoActiveDispute();
-        if (status != EscrowStatus.Disputed) revert NoActiveDispute();
-        if (refundAmount + releaseAmount != escrowAmount) {
+        if (!disputeData.isDisputed) revert NoActiveDispute();
+        if (state.currentStatus != EscrowStatus.Disputed)
+            revert NoActiveDispute();
+        if (refundAmount + releaseAmount != state.escrowAmount) {
             revert InvalidSettlementAmounts();
         }
 
@@ -321,10 +417,12 @@ contract Flexiscrow {
             IERC20(erc20Token).safeTransfer(seller, releaseAmount);
         }
 
-        status = EscrowStatus.Completed;
-        isDisputed = false;
-        disputeInitiator = address(0);
-        disputeTimestamp = 0;
+        state.previousStatus = state.currentStatus;
+        state.currentStatus = EscrowStatus.Completed;
+        disputeData.isDisputed = false;
+        disputeData.disputeInitiator = address(0);
+        disputeData.disputeTimestamp = 0;
+
         emit DisputeResolved(refundAmount, releaseAmount);
     }
 
@@ -332,12 +430,19 @@ contract Flexiscrow {
      * @dev Internal function to release escrow funds
      */
     function _releaseFunds() internal {
-        IERC20(erc20Token).safeTransfer(seller, escrowAmount);
-        status = EscrowStatus.Completed;
-        emit FundsReleased(escrowAmount);
+        uint256 penalty = calculatePenalty();
+        uint256 finalAmount = state.escrowAmount - penalty;
+
+        IERC20(erc20Token).safeTransfer(seller, finalAmount);
+        if (penalty > 0) {
+            IERC20(erc20Token).safeTransfer(buyer, penalty);
+        }
+        state.previousStatus = state.currentStatus;
+        state.currentStatus = EscrowStatus.Completed;
+        emit FundsReleased(finalAmount, penalty);
     }
 
-    /**
+  /**
      * @notice Returns the addresses of the buyer, seller, and arbitrator
      * @dev Provides external visibility for accessing the key parties involved in the escrow
      * @return buyer Address of the buyer
